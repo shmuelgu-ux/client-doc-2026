@@ -265,23 +265,51 @@
   var a=document.getElementById('screamAudio');
   var SCREAM_START=3;     // הצרחה הטובה מתחילה בשנייה 3
   var DELAY=4500;         // 4.5 שניות עד הקפיצה
-  var armed=false;
+  var armed=false, ctx=null, buf=null, didScare=false;
 
-  // "חימום" האודיו בתוך מחוות המשתמש הראשונה (גלילה/נגיעה/זום בזמן קריאה):
-  // מנגן מושתק בלולאה כדי שהאודיו יהיה פעיל, ובקפיצה רק מבטלים השתקה.
+  // חימום בתוך מחוות המשתמש הראשונה (גלילה/נגיעה/זום בזמן קריאה):
+  // 1) מכינים Web Audio שמנגן ברגע מדויק בלי השהיית seek
+  // 2) גיבוי: מחממים את אלמנט ה-audio הרגיל
   function arm(){
     if(armed) return; armed=true;
-    try{ a.muted=true; a.loop=true; a.currentTime=0; var p=a.play(); if(p&&p.catch)p.catch(function(){}); }catch(e){}
+    try{
+      var AC=window.AudioContext||window.webkitAudioContext;
+      if(AC){
+        ctx=new AC();
+        if(ctx.resume) ctx.resume();
+        fetch(a.src).then(function(r){return r.arrayBuffer();})
+          .then(function(ab){ ctx.decodeAudioData(ab,function(b){ buf=b; }); })
+          .catch(function(){});
+      }
+    }catch(e){}
+    try{ a.muted=true; var p=a.play(); if(p&&p.then){p.then(function(){a.pause();a.currentTime=0;a.muted=false;}).catch(function(){a.muted=false;});} }catch(e){}
   }
   ['touchstart','touchmove','pointerdown','click','keydown','scroll','wheel','gesturestart'].forEach(function(ev){
     window.addEventListener(ev,arm,{passive:true});
   });
   document.addEventListener('touchstart',arm,{passive:true});
 
+  function playScream(){
+    // עדיפות ל-Web Audio (מיידי, מדויק, מתחיל משנייה 3)
+    try{
+      if(ctx && buf){
+        if(ctx.state==='suspended' && ctx.resume) ctx.resume();
+        var src=ctx.createBufferSource();
+        src.buffer=buf; src.connect(ctx.destination);
+        src.start(0, SCREAM_START);
+        return true;
+      }
+    }catch(e){}
+    // גיבוי: אלמנט audio רגיל
+    try{ a.loop=false; a.muted=false; a.volume=1; a.currentTime=SCREAM_START; var p=a.play(); if(p&&p.catch)p.catch(function(){}); return true; }catch(e){}
+    return false;
+  }
+
   function scare(){
+    if(didScare) return; didScare=true;
     var s=document.getElementById('scare');
-    // אם כבר חומם - מבטלים השתקה וקופצים לחלק הטוב. אם לא - ננסה לנגן ישירות.
-    try{ a.loop=false; a.muted=false; a.volume=1; a.currentTime=SCREAM_START; var p=a.play(); if(p&&p.catch)p.catch(function(){}); }catch(e){}
+    // קול + תמונה באותו רגע בדיוק (אותה פעימה סינכרונית)
+    playScream();
     s.classList.add('on');
     setTimeout(function(){s.classList.add('flash');},100);
     if(navigator.vibrate){try{navigator.vibrate([0,600,60,600,60,900]);}catch(e){}}
@@ -291,11 +319,9 @@
     setTimeout(function(){s.classList.remove('flash');},3000);
   }
 
-  // אם הצרחה לא הספיקה להתחיל (לא נגעו במסך) - תתפרץ ברגע שייגעו
+  // אם לא נגעו במסך כלל לפני הקפיצה והקול לא יצא - יתפרץ ברגע הנגיעה הראשונה
   function lateAudio(){
-    if(document.getElementById('scare').classList.contains('on')){
-      try{ a.loop=false; a.muted=false; a.volume=1; if(a.paused){a.currentTime=SCREAM_START;a.play();} }catch(e){}
-    }
+    if(didScare){ try{ if(a.paused && (!ctx||!buf)){a.muted=false;a.volume=1;a.currentTime=SCREAM_START;a.play();} }catch(e){} }
   }
   ['touchstart','pointerdown','click','keydown'].forEach(function(ev){
     window.addEventListener(ev,lateAudio,{passive:true});
