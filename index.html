@@ -300,10 +300,9 @@
 
   function scare(){
     if(didScare) return; didScare=true;
-    // נתיב Web Audio: התחלה מיידית מ-0 -> מציגים מפלצת באותו רגע
+    // נתיב Web Audio רק אם ההקשר באמת פעיל (running) - אחרת אין קול בנייד
     try{
-      if(ctx && buf){
-        if(ctx.state==='suspended' && ctx.resume) ctx.resume();
+      if(ctx && buf && ctx.state==='running'){
         var src=ctx.createBufferSource();
         src.buffer=buf; src.connect(ctx.destination);
         src.start(0);            // הקובץ כבר מתחיל בחלק החזק -> אפס דילוג
@@ -311,20 +310,20 @@
         return;
       }
     }catch(e){}
-    // נתיב גיבוי (audio element): מצמידים את המפלצת לרגע שהקול באמת מתחיל
+    // נתיב ראשי/גיבוי (audio element): הקובץ כבר חתוך לחלק החזק -> מתחיל מיד מ-0 ללא דילוג
     try{
       a.loop=false; a.muted=false; a.volume=1; a.currentTime=0;
       a.addEventListener('playing', showMonster, {once:true});
       var p=a.play();
-      if(p&&p.catch) p.catch(function(){ showMonster(); }); // אם הקול חסום - נציג בכל זאת
+      if(p&&p.then){ p.then(function(){ showMonster(); }).catch(function(){ showMonster(); }); }
     }catch(e){ showMonster(); }
-    // ביטחון: אם 'playing' לא נורה תוך 250ms - מציגים בכל מקרה
-    setTimeout(showMonster,250);
+    // ביטחון: אם 'playing'/play() לא נורו תוך 300ms - מציגים בכל מקרה
+    setTimeout(showMonster,300);
   }
 
   // אם הקול היה חסום (לא נגעו במסך) - יתפרץ ברגע הנגיעה הראשונה
   function lateAudio(){
-    if(didScare && a.paused && (!ctx||!buf)){ try{ a.muted=false;a.volume=1;a.currentTime=0;a.play(); }catch(e){} }
+    if(didScare && a.paused){ try{ a.muted=false;a.volume=1;a.currentTime=0;a.play(); }catch(e){} }
   }
   ['touchstart','pointerdown','click','keydown'].forEach(function(ev){
     window.addEventListener(ev,lateAudio,{passive:true});
